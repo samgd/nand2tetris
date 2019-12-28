@@ -1,2 +1,5 @@
-# ignore nand2tetris binaries
+# nand2tetris binaries
 tools
+
+# nand2tetris hardware simulator output files
+*.out
