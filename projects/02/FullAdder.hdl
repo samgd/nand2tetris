@@ -13,5 +13,16 @@ CHIP FullAdder {
         carry;   // Left bit of a + b + c
 
     PARTS:
-    // Put you code here:
+    // sum is 1 when odd number of inputs set
+    Xor(a=a, b=b, out=xorAB);
+    Xor(a=xorAB, b=c, out=sum);
+
+    // carry is 1 at least two inputs set, possible combinations:
+    //    AB or AC or BC
+    //    == AB or ((A or  B) and C)
+    //    == AB or ((A xor B) and C)
+    // last equivalence means the sum Xor can be reused
+    And(a=a, b=b, out=andAB);
+    And(a=xorAB, b=c, out=andXorABCarry);
+    Or(a=andAB, b=andXorABCarry, out=carry);
 }
