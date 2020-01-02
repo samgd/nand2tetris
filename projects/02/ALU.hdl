@@ -75,5 +75,16 @@ CHIP ALU {
 
     // out control
     Not16(in=outF, out=notF);
-    Mux16(a=outF, b=notF, sel=no, out=out);
+    Mux16(
+        a=outF, b=notF, sel=no,
+        out=out, out[0..7]=low8, out[8..15]=high8, out[15]=msb
+    );
+
+    // status
+    Or8Way(in=low8,  out=zrLow);
+    Or8Way(in=high8, out=zrHigh);
+    Or(a=zrLow, b=zrHigh, out=zrAll);
+    Not(in=zrAll, out=zr);
+
+    And(a=msb, b=true, out=ng);
 }
