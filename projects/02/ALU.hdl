@@ -7,7 +7,7 @@
  * The ALU (Arithmetic Logic Unit).
  * Computes one of the following functions:
  * x+y, x-y, y-x, 0, 1, -1, x, y, -x, -y, !x, !y,
- * x+1, y+1, x-1, y-1, x&y, x|y on two 16-bit inputs, 
+ * x+1, y+1, x-1, y-1, x&y, x|y on two 16-bit inputs,
  * according to 6 input bits denoted zx,nx,zy,ny,f,no.
  * In addition, the ALU computes two 1-bit outputs:
  * if the ALU output == 0, zr is set to 1; otherwise zr is set to 0;
@@ -27,8 +27,8 @@
 // if (out < 0) set ng = 1
 
 CHIP ALU {
-    IN  
-        x[16], y[16],  // 16-bit inputs        
+    IN
+        x[16], y[16],  // 16-bit inputs
         zx, // zero the x input?
         nx, // negate the x input?
         zy, // zero the y input?
@@ -36,11 +36,44 @@ CHIP ALU {
         f,  // compute out = x + y (if 1) or x & y (if 0)
         no; // negate the out output?
 
-    OUT 
+    OUT
         out[16], // 16-bit output
         zr, // 1 if (out == 0), 0 otherwise
         ng; // 1 if (out < 0),  0 otherwise
 
     PARTS:
-   // Put you code here:
+    // x control
+    Not(in=zx, out=notZX);
+    And16(
+        a=x,
+        b[0]=notZX,  b[1]=notZX,  b[2]=notZX,  b[3]=notZX,  b[4]=notZX,
+        b[5]=notZX,  b[6]=notZX,  b[7]=notZX,  b[8]=notZX,  b[9]=notZX,
+        b[10]=notZX, b[11]=notZX, b[12]=notZX, b[13]=notZX, b[14]=notZX,
+        b[15]=notZX,
+        out=mybZX
+    );
+    Not16(in=mybZX, out=nmybZX);
+    Mux16(a=mybZX, b=nmybZX, sel=nx, out=outX);
+
+    // y control
+    Not(in=zy, out=notZY);
+    And16(
+        a=y,
+        b[0]=notZY,  b[1]=notZY,  b[2]=notZY,  b[3]=notZY,  b[4]=notZY,
+        b[5]=notZY,  b[6]=notZY,  b[7]=notZY,  b[8]=notZY,  b[9]=notZY,
+        b[10]=notZY, b[11]=notZY, b[12]=notZY, b[13]=notZY, b[14]=notZY,
+        b[15]=notZY,
+        out=mybZY
+    );
+    Not16(in=mybZY, out=nmybZY);
+    Mux16(a=mybZY, b=nmybZY, sel=ny, out=outY);
+
+    // function
+    And16(a=outX,  b=outY, out=andXY);
+    Add16(a=outX,  b=outY, out=addXY);
+    Mux16(a=andXY, b=addXY, sel=f, out=outF);
+
+    // out control
+    Not16(in=outF, out=notF);
+    Mux16(a=outF, b=notF, sel=no, out=out);
 }
