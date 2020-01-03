@@ -12,9 +12,34 @@
  */
 
 CHIP PC {
-    IN in[16],load,inc,reset;
+    IN in[16], load, inc, reset;
     OUT out[16];
 
     PARTS:
-    // Put your code here:
+    Not(in=load,  out=notLoad);
+    Not(in=inc,   out=notInc);
+    Not(in=reset, out=notReset);
+
+    // Mux4Way16 sel[2]:
+
+    //     sel[1] is true if reset=0 and load=0
+    And(a=notReset, b=notLoad, out=sel1);
+
+    //     sel[0] is true if
+    //         (reset=0 and load=1)
+    //      or (reset=0 and load=0 and inc=0)
+    And(a=notReset,           b=load,    out=andNotResetLoad);
+    And(a=notReset,           b=notLoad, out=andNotResetNotLoad);
+    And(a=andNotResetNotLoad, b=notInc,  out=andNotResetNotLoadNotInc);
+    Or(a=andNotResetLoad, b=andNotResetNotLoadNotInc, out=sel0);
+
+    Inc16(in=loop, out=outInc);
+
+    Mux4Way16(
+        a=false, b=in, c=outInc, d=loop,
+        sel[1]=sel1, sel[0]=sel0,
+        out=newOut
+    );
+
+    Register(in=newOut, load=true, out=loop, out=out);
 }
