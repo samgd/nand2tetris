@@ -6,23 +6,23 @@
 /**
  * The Hack CPU (Central Processing unit), consisting of an ALU,
  * two registers named A and D, and a program counter named PC.
- * The CPU is designed to fetch and execute instructions written in 
+ * The CPU is designed to fetch and execute instructions written in
  * the Hack machine language. In particular, functions as follows:
- * Executes the inputted instruction according to the Hack machine 
+ * Executes the inputted instruction according to the Hack machine
  * language specification. The D and A in the language specification
  * refer to CPU-resident registers, while M refers to the external
- * memory location addressed by A, i.e. to Memory[A]. The inM input 
- * holds the value of this location. If the current instruction needs 
- * to write a value to M, the value is placed in outM, the address 
- * of the target location is placed in the addressM output, and the 
- * writeM control bit is asserted. (When writeM==0, any value may 
- * appear in outM). The outM and writeM outputs are combinational: 
- * they are affected instantaneously by the execution of the current 
- * instruction. The addressM and pc outputs are clocked: although they 
- * are affected by the execution of the current instruction, they commit 
- * to their new values only in the next time step. If reset==1 then the 
- * CPU jumps to address 0 (i.e. pc is set to 0 in next time step) rather 
- * than to the address resulting from executing the current instruction. 
+ * memory location addressed by A, i.e. to Memory[A]. The inM input
+ * holds the value of this location. If the current instruction needs
+ * to write a value to M, the value is placed in outM, the address
+ * of the target location is placed in the addressM output, and the
+ * writeM control bit is asserted. (When writeM==0, any value may
+ * appear in outM). The outM and writeM outputs are combinational:
+ * they are affected instantaneously by the execution of the current
+ * instruction. The addressM and pc outputs are clocked: although they
+ * are affected by the execution of the current instruction, they commit
+ * to their new values only in the next time step. If reset==1 then the
+ * CPU jumps to address 0 (i.e. pc is set to 0 in next time step) rather
+ * than to the address resulting from executing the current instruction.
  */
 
 CHIP CPU {
@@ -34,10 +34,199 @@ CHIP CPU {
                          // the current program (reset==0).
 
     OUT outM[16],        // M value output
-        writeM,          // Write to M? 
+        writeM,          // Write to M?
         addressM[15],    // Address in data memory (of M)
         pc[15];          // address of next instruction
 
     PARTS:
-    // Put your code here:
+    /* Reference Notes
+     *
+     * A Instruction (MSB 0)
+     *
+     *     Treated as 16-bit binary value which is loaded into A register
+     *
+     * C Instruction (MSB 1)
+     *
+     *     Treated as sequence of control bits that determine the ALU operation
+     *
+     *     Format: ixxaccccccdddjjj
+     *         i: opcode, must be 1 to denote C instruction
+     *
+     *         x: unused
+     *
+     *         acccccc: "comp" part of instruction
+     *
+     *             a: ALU operate on A register input or M input
+     *
+     *             cccccc: ALU function
+     *
+     *             | a = 0 | c c c c c c | a = 1 |
+     *             |-------+-------------+-------|
+     *             |     0 | 1 0 1 0 1 0 |       |
+     *             |     1 | 1 1 1 1 1 1 |       |
+     *             |    -1 | 1 1 1 0 1 0 |       |
+     *             |     D | 0 0 1 1 0 0 |       |
+     *             |     A | 1 1 0 0 0 0 |     M |
+     *             |    !D | 0 0 1 1 0 1 |       |
+     *             |    !A | 1 1 0 0 0 1 |    !M |
+     *             |    -D | 0 0 1 1 1 1 |       |
+     *             |    -A | 1 1 0 0 1 1 |    -M |
+     *             |   D+1 | 0 1 1 1 1 1 |       |
+     *             |   A+1 | 1 1 0 1 1 1 |   M+1 |
+     *             |   D-1 | 0 0 1 1 1 0 |       |
+     *             |   A-1 | 1 1 0 0 1 0 |   M-1 |
+     *             |   D+A | 0 0 0 0 1 0 |   D+M |
+     *             |   D-A | 0 1 0 0 1 1 |   D-M |
+     *             |   A-D | 0 0 0 1 1 1 |   M-D |
+     *             |   D&A | 0 0 0 0 0 0 |   D&M |
+     *             |   D|A | 0 1 0 1 0 1 |   D|M |
+     *
+     *
+     *         ddd: "dest" part of instruction
+     *
+     *             | d d d | Mnemonic | Destination                       |
+     *             |-------+----------+-----------------------------------|
+     *             | 0 0 0 |          | Value not stored                  |
+     *             | 0 0 1 |   M      | Memory[A]                         |
+     *             | 0 1 0 |  D       | D register                        |
+     *             | 0 1 1 |  DM      | D register, Memory[A]             |
+     *             | 1 0 0 | A        | A register                        |
+     *             | 1 0 1 | A M      | A register, Memory[A]             |
+     *             | 1 1 0 | AD       | A register, D register            |
+     *             | 1 1 1 | ADM      | A register, D register, Memory[A] |
+     *
+     *         jjj: "jump" part of instruction
+     *
+     *             | j       | j       | j       | Mnemonic | Effect          |
+     *             | out < 0 | out = 0 | out > 0 |          |                 |
+     *             |---------+---------+---------+----------+-----------------|
+     *             | 0       | 0       | 0       |          |                 |
+     *             | 0       | 0       | 1       | JGT      | If out >  0 jmp |
+     *             | 0       | 1       | 0       | JEQ      | If out  = 0 jmp |
+     *             | 0       | 1       | 1       | JGE      | If out >= 0 jmp |
+     *             | 1       | 0       | 0       | JLT      | If out <  0 jmp |
+     *             | 1       | 0       | 1       | JNE      | If out != 0 jmp |
+     *             | 1       | 1       | 0       | JLE      | If out <= 0 jmp |
+     *             | 1       | 1       | 1       | JMP      |             jmp |
+    */
+    Not(in=instruction[15], out=isAInstruct);
+
+    /* Registers
+     *     A: Holds addresses or data.
+     *         If A instruction, set to instruction.
+     *         If C instruction and instruction[5], set to ALU output
+     *
+     *     D: Holds data.
+     *         If C instruction and D destination, set DRegister load to 1.
+    */
+    Mux16(a=outALU, b=instruction, sel=isAInstruct, out=aRegIn);
+    And(a=instruction[15], b=instruction[5], out=cInstructAndADest);
+    Or(a=isAInstruct, b=cInstructAndADest, out=aRegLoad);
+    ARegister(in=aRegIn, load=aRegLoad, out=aReg, out[0..14]=addressM);
+
+    And(a=instruction[15], b=instruction[4], out=dRegLoad);
+    DRegister(in=outALU, load=dRegLoad, out=dReg);
+
+    /* Program Counter
+     *     Increments by 1 unless:
+     *         - Reset is 1, then set to 0.
+     *         - Jump is 1, then set to A register output. Jump is 1 when
+     *           condition specified by C instruction evaluates to true.
+    */
+    Not(in=zr, out=ne);       // ALU out != 0
+    Not(in=ng, out=ge);       // ALU out >= 0
+    And(a=ne, b=ge, out=gt);  // ALU out >  0
+    Or(a=zr, b=ng, out=le);   // ALU out <= 0
+
+    Not(in=instruction[2], out=notJ2);
+    Not(in=instruction[1], out=notJ1);
+    Not(in=instruction[0], out=notJ0);
+
+    And4Way(a=notJ2,          b=notJ1,          c=instruction[0], d=gt,   out=jgt);
+    And4Way(a=notJ2,          b=instruction[1], c=notJ0,          d=zr,   out=jeq);
+    And4Way(a=notJ2,          b=instruction[1], c=instruction[0], d=ge,   out=jge);
+    And4Way(a=instruction[2], b=notJ1,          c=notJ0,          d=ng,   out=jlt);
+    And4Way(a=instruction[2], b=notJ1,          c=instruction[0], d=ne,   out=jne);
+    And4Way(a=instruction[2], b=instruction[1], c=notJ0,          d=le,   out=jle);
+    And4Way(a=instruction[2], b=instruction[1], c=instruction[0], d=true, out=jmp);
+
+    Or8Way(
+        in[0]=false, in[1]=jgt, in[2]=jeq, in[3]=jge,
+        in[4]=jlt,   in[5]=jne, in[6]=jle, in[7]=jmp,
+        out=jumpOr
+    );
+
+    // Jump only when C instruction.
+    And(a=jumpOr, b=instruction[15], out=jump);
+
+    Mux16(a[0..14]=outPC, b=aReg, sel=jump, out=pcIn);
+
+    PC(
+        in=pcIn,
+        load=jump,
+        inc=true,
+        reset=reset,
+        out[0..14]=outPC,
+        out[0..14]=pc
+    );
+
+    /* ALU
+     *
+     * The function to compute is determined by 6 input bits, and produces a
+     * 16-bit output and two output bit zr, ng where:
+     *    if (out == 0) sets zr = 1
+     *    if (out < 0)  sets ng = 1
+    */
+
+    /* ALU Inputs
+     *     x set to:
+     *         - D register
+     *
+     *     y set to:
+     *         - A register when C opcode and a is 0
+     *         - inM        when C opcode and a is 1
+    */
+    And(a=instruction[15], b=instruction[12], out=yALUSel);
+    Mux16(a=aReg, b=inM, sel=yALUSel, out=yALU);
+
+    /* ALU Outputs
+     *
+     *     Write to memory when C instruction and M destination
+    */
+    And(a=instruction[15], b=instruction[3], out=writeM);
+
+
+    // zx is 1 when C instruction and instruction[11] is 1
+    And(a=instruction[15], b=instruction[11], out=zx);
+
+    // nx is 1 when C instruction and instruction[10] is 1
+    And(a=instruction[15], b=instruction[10], out=nx);
+
+    // zy is 1 when C instruction and instruction[9] is 1
+    And(a=instruction[15], b=instruction[9], out=zy);
+
+    // ny is 1 when C instruction and instruction[8] is 1
+    And(a=instruction[15], b=instruction[8], out=ny);
+
+    // f  is 1 when C instruction and instruction[7] is 1
+    And(a=instruction[15], b=instruction[7], out=f);
+
+    // no is 1 when C instruction and instruction[6] is 1
+    And(a=instruction[15], b=instruction[6], out=no);
+
+    ALU(
+        x=dReg,
+        y=yALU,
+        zx=zx,
+        nx=nx,
+        zy=zy,
+        ny=ny,
+        f=f,
+        no=no,
+        out=outALU,
+        out=outM,
+        zr=zr,
+        ng=ng
+    );
+
 }
