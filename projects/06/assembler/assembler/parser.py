@@ -12,32 +12,109 @@ from typing import Union
 
 @dataclass
 class Address:
-    """
+    """A Hack address instruction.
+
+    Args:
+        item: An address or a variable or label name.
+
+    Example:
+        >>> Address(item=5)
+        Address(item=5)
     """
     item: Union[int, str]
 
 
 @dataclass
 class Compute:
+    """A Hack compute instruction.
+
+    Args:
+        comp: The computation to perform.
+        dest: The destination for the result, if any.
+        jump: The jump command, if any.
+
+    Example:
+        >>> Compute(comp="D|A", dest="M", jump="JGT")
+        Compute(comp='D|A', dest='M', jump='JGT')
     """
-    """
-    dest: Optional[str]
     comp: str
-    jump: Optional[str]
+    dest: Optional[str] = None
+    jump: Optional[str] = None
 
 
 @dataclass
 class Label:
+    """A Hack label pseudo-command.
+
+    Args:
+        symbol: The symbol. e.g. Xxx in "(Xxx)".
+
+    Example:
+        >>> Label(symbol="Foo")
+        Label(symbol='Foo')
     """
-    """
-    label: str
+    symbol: str
 
 
 class Parser:
-    """Parses Hack assembly commands from a file.
+    r"""Parses Hack assembly commands from a file.
 
     Args:
 
+
+    Examples:
+
+        >>> import tempfile
+        >>> with tempfile.NamedTemporaryFile("w") as f:
+        ...     _ = f.write('''
+        ...
+        ... // Comment
+        ... @2
+        ...
+        ... D=A     //
+        ...
+        ... @2
+        ... @3
+        ... D=D+A
+        ... @0
+        ...   // Another comment.
+        ... M=D
+        ...
+        ... (END)
+        ... @END
+        ... 0;JMP
+        ... ''')
+        ...     _ = f.seek(0)
+        ...     p = Parser(f.name)
+        ...     exp = [
+        ...         Address(item=2),
+        ...         Compute(dest="D", comp="A"),
+        ...         Address(item=2),
+        ...         Address(item=3),
+        ...         Compute(dest="D", comp="D+A"),
+        ...         Address(item=0),
+        ...         Compute(dest="M", comp="D"),
+        ...         Label(symbol="END"),
+        ...         Address(item="END"),
+        ...         Compute(comp="0", jump="JMP")
+        ...     ]
+        ...     act = list(iter(p))
+        >>> assert exp == act, (exp, act)
+
+
+        >>> import tempfile
+        >>> with tempfile.NamedTemporaryFile("w") as f:
+        ...     _ = f.write('''
+        ...
+        ...     invalid
+        ...
+        ... ''')
+        ...     _ = f.seek(0)
+        ...     p = Parser(f.name)
+        ...     list(iter(p))
+        Traceback (most recent call last):
+            ...
+        ValueError: ('failed to parse line: ', "'    invalid\\n'")
     """
     def __init__(self, path: Union[str, pathlib.Path]):
         self.path = pathlib.Path(path)
@@ -95,11 +172,10 @@ class Parser:
         return command_gen(self.path)
 
     def _parse(self, line: str) -> Union[None, Address, Compute, Label]:
-        """"""
         match = self._command_pattern.fullmatch(line)
 
         if match is None:
-            raise ValueError(repr(line))
+            raise ValueError('failed to parse line: ', repr(line))
 
         if match["whitespace"] or match["comment"]:
             return
@@ -117,10 +193,15 @@ class Parser:
             return Compute(dest=dest, comp=comp, jump=jump)
 
         if match["label"]:
-            return Label(label=match["label_symbol"])
+            return Label(symbol=match["label_symbol"])
 
         raise ValueError("unexpected match for line {line}")
 
 
     def __repr__(self):
         return f'{self.__class__.__name__}(path="{self.path.absolute()}")'
+
+
+if __name__ == "__main__":
+    import doctest
+    doctest.testmod()
