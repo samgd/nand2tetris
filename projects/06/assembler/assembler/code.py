@@ -1,126 +1,5 @@
-r"""
-    Examples:
-
-        >>> # MaxL.asm
-        >>> import tempfile
-        >>> with tempfile.NamedTemporaryFile(mode="w", suffix=".asm") as f:
-        ...     _ = f.write('''
-        ... // This file is part of www.nand2tetris.org
-        ... // and the book "The Elements of Computing Systems"
-        ... // by Nisan and Schocken, MIT Press.
-        ... // File name: projects/06/max/MaxL.asm
-        ...
-        ... // Symbol-less version of the Max.asm program.
-        ...
-        ... @0
-        ... D=M
-        ... @1
-        ... D=D-M
-        ... @10
-        ... D;JGT
-        ... @1
-        ... D=M
-        ... @12
-        ... 0;JMP
-        ... @0
-        ... D=M
-        ... @2
-        ... M=D
-        ... @14
-        ... 0;JMP
-        ... ''')
-        ...     _ = f.seek(0)
-        ...     assembler = HackAssembler()
-        ...     hack_path = assembler(asm_path=f.name)
-        ...     print(hack_path.open("r").read())
-        0000000000000000
-        1111110000010000
-        0000000000000001
-        1111010011010000
-        0000000000001010
-        1110001100000001
-        0000000000000001
-        1111110000010000
-        0000000000001100
-        1110101010000111
-        0000000000000000
-        1111110000010000
-        0000000000000010
-        1110001100001000
-        0000000000001110
-        1110101010000111
-        <BLANKLINE>
-
-
-        >>> # RectL.asm
-        >>> import tempfile
-        >>> with tempfile.NamedTemporaryFile(mode="w", suffix=".asm") as f:
-        ...     _ = f.write('''
-        ... // This file is part of www.nand2tetris.org
-        ... // and the book "The Elements of Computing Systems"
-        ... // by Nisan and Schocken, MIT Press.
-        ... // File name: projects/06/rect/RectL.asm
-        ...
-        ... // Symbol-less version of the Rect.asm program.
-        ...
-        ... @0
-        ... D=M
-        ... @23
-        ... D;JLE
-        ... @16
-        ... M=D
-        ... @16384
-        ... D=A
-        ... @17
-        ... M=D
-        ... @17
-        ... A=M
-        ... M=-1
-        ... @17
-        ... D=M
-        ... @32
-        ... D=D+A
-        ... @17
-        ... M=D
-        ... @16
-        ... MD=M-1
-        ... @10
-        ... D;JGT
-        ... @23
-        ... 0;JMP
-        ... ''')
-        ...     _ = f.seek(0)
-        ...     assembler = HackAssembler()
-        ...     hack_path = assembler(asm_path=f.name)
-        ...     print(hack_path.open("r").read())
-        0000000000000000
-        1111110000010000
-        0000000000010111
-        1110001100000110
-        0000000000010000
-        1110001100001000
-        0100000000000000
-        1110110000010000
-        0000000000010001
-        1110001100001000
-        0000000000010001
-        1111110000100000
-        1110111010001000
-        0000000000010001
-        1111110000010000
-        0000000000100000
-        1110000010010000
-        0000000000010001
-        1110001100001000
-        0000000000010000
-        1111110010011000
-        0000000000001010
-        1110001100000001
-        0000000000010111
-        1110101010000111
-        <BLANKLINE>
-"""
 import pathlib
+from typing import Dict
 from typing import Union
 
 from assembler import parser
@@ -128,13 +7,25 @@ from assembler import parser
 
 class HackAssembler:
     """Assemble a Hack assembly program."""
-    def __call__(self, asm_path: Union[str, pathlib.Path]) -> pathlib.Path:
-        asm_path = pathlib.Path(asm_path)   # ensure is pathlib.Path
-        hack_path = asm_path.with_suffix(".hack")
+    def __init__(self, asm_path: Union[str, pathlib.Path]):
+        self.asm_path = pathlib.Path(asm_path)   # ensure is pathlib.Path
+        self.hack_path = self.asm_path.with_suffix(".hack")
+        self.symbols = self._built_in_symbols()
+        self._next_var_address = 16
 
-        commands = list(parser.Parser(asm_path))
+    def __call__(self) -> pathlib.Path:
+        commands = list(parser.Parser(self.asm_path))
 
-        with hack_path.open("w") as f:
+        # 1st pass: populate symbol table with labels
+        n_commands = 0
+        for command in commands:
+            if isinstance(command, parser.Label):
+                self.symbols[command.symbol] = n_commands
+            else:
+                n_commands += 1
+
+        # 2nd pass: translate commands + populate symbol table with variables
+        with self.hack_path.open("w") as f:
             for command in commands:
                 if isinstance(command, parser.Address):
                     f.write(self._address(command) + "\n")
@@ -144,55 +35,39 @@ class HackAssembler:
                     f.write(self._compute(command) + "\n")
                     continue
 
-                raise ValueError(f"unknown command {command}")
-
-        return hack_path
+        return self.hack_path
 
     @staticmethod
-    def _address(address: parser.Address) -> str:
-        r"""Returns a string representing the binary encoding of `address`.
+    def _built_in_symbols() -> Dict[str, int]:
+        symbols = {"SP": 0, "LCL": 1, "ARG": 2, "THIS": 3, "THAT": 4}
+        for i in range(16):
+            symbols[f"R{i}"] = i
+        symbols.update({"SCREEN": 16384, "KBD": 24576})
+        return symbols
 
-        Examples:
+    def _address(self, address: parser.Address) -> str:
+        r"""Returns a string representing the binary encoding of `address`."""
+        if isinstance(address.item, int):
+            # Address item already an integer
+            value = address.item
+        else:
+            # Address item is symbol
+            if address.item in self.symbols:
+                # symbol exists in symbol table so use value
+                value = self.symbols[address.item]
+            else:
+                # symbol does not exist in symbol table, make new variable
+                self.symbols[address.item] = self._next_var_address
+                value = self._next_var_address
+                self._next_var_address += 1
 
-            >>> address = parser.Address(item="5")
-            >>> HackAssembler._address(address)
-            '0000000000000101'
-
-            >>> address = parser.Address(item=str(2**15 - 1))
-            >>> HackAssembler._address(address)
-            '0111111111111111'
-
-            >>> address = parser.Address(item="-1")
-            >>> HackAssembler._address(address)
-            Traceback (most recent call last):
-                ...
-            ValueError: Address(item='-1') item must be in [0, 2**15)
-
-            >>> address = parser.Address(item=str(2**15))
-            >>> HackAssembler._address(address)
-            Traceback (most recent call last):
-                ...
-            ValueError: Address(item='32768') item must be in [0, 2**15)
-        """
-        value = int(address.item)
         if not (0 <= value < 2**15):
             raise ValueError(f"{address} item must be in [0, 2**15)")
+
         return f"0{value:015b}"
 
-    @staticmethod
-    def _compute(compute: parser.Compute) -> str:
-        r"""Returns a string representing the binary encoding of `compute`.
-
-        Examples:
-
-            >>> compute = parser.Compute(comp="D+A")
-            >>> HackAssembler._compute(compute)
-            '1110000010000000'
-
-            >>> compute = parser.Compute(comp="-M", dest="AMD", jump="JMP")
-            >>> HackAssembler._compute(compute)
-            '1111110011111111'
-        """
+    def _compute(self, compute: parser.Compute) -> str:
+        r"""Returns a string representing the binary encoding of `compute`."""
         comp_map = {
             "0":   "0101010", "1":   "0111111", "-1":  "0111010",
             "D":   "0001100", "A":   "0110000", "!D":  "0001101",
@@ -224,9 +99,3 @@ class HackAssembler:
         jump_bin = jump_map[compute.jump]
 
         return "111" + comp_bin + dest_bin + jump_bin
-
-
-
-if __name__ == "__main__":
-    import doctest
-    doctest.testmod()

@@ -8,5 +8,5 @@ def main():
     parser.add_argument("infile", type=str, help="Hack assembly language file")
     args = parser.parse_args()
 
-    assembler = HackAssembler()
-    assembler(asm_path=args.infile)
+    assembler = HackAssembler(asm_path=args.infile)
+    assembler()
