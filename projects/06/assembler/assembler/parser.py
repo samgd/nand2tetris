@@ -1,8 +1,3 @@
-"""
-
-TODO: invalid should err
-
-"""
 import pathlib
 import re
 from dataclasses import dataclass
@@ -60,7 +55,7 @@ class Parser:
     r"""Parses Hack assembly commands from a file.
 
     Args:
-
+        path: Path of file to parse.
 
     Examples:
 
@@ -196,7 +191,6 @@ class Parser:
             return Label(symbol=match["label_symbol"])
 
         raise ValueError("unexpected match for line {line}")
-
 
     def __repr__(self):
         return f'{self.__class__.__name__}(path="{self.path.absolute()}")'
